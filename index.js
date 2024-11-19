@@ -1,13 +1,18 @@
 const { Telegraf } = require("telegraf");
 require("dotenv").config();
 
-const bot = new Telegraf(process.env.BOT_TOKEN || "");
+const botToken = process.env.BOT_TOKEN;
+if (!botToken) {
+  throw new Error("BOT_TOKEN is required");
+}
+
+const bot = new Telegraf(botToken);
 
 bot.on("message", async (ctx) => {
   if (ctx.message.from.username === "VISCHCKQTOR") {
     await ctx.reply("@VISCHCKQTOR the game");
-  } else {
-    if (ctx.message.text.contains("the game")) {
+  } else if (typeof ctx.message.text === "string") {
+    if (ctx.message.text.includes("the game")) {
       await ctx.reply("@VISCHCKQTOR has lost the game");
     }
   }
