@@ -1,51 +1,43 @@
 require("dotenv").config();
 const { Telegraf } = require("telegraf");
-const fs = require("fs");
+const path = require("path");
+const { exec } = require("child_process");
+const { saveData } = require("./util");
 
-// Ensure the bot token is provided
+// Ensure bot API token is set
 const botToken = process.env.BOT_TOKEN;
 if (!botToken) {
-  throw new Error("BOT_TOKEN is required in the .env file");
+  throw new Error("BOT_TOKEN is required in .env file");
 }
 
-// Initialize the bot
+// Initialize bot
 const bot = new Telegraf(botToken);
 
-// Utility function to pause execution for a given number of milliseconds
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-// Flag to control message processing
+// System variables
+const authUser = process.env.AUTH_USER;
 let isSleeping = false;
-
-// Load data from JSON file
-const dataFile = "./data.json";
-let botData = { users: {}, leaderboard: {}, games: {} };
-
-// Function to load and save data
-const loadData = () => {
-  if (fs.existsSync(dataFile)) {
-    botData = JSON.parse(fs.readFileSync(dataFile, "utf8"));
-  }
-};
-const saveData = () => {
-  fs.writeFileSync(dataFile, JSON.stringify(botData, null, 2));
+const dataFilepath = process.env.DATA_FILE || "./data.json";
+let botData = loadData(dataFilepath) || {
+  users: {},
+  leaderboard: {},
+  games: {},
+  rouletteChance: 25,
 };
 
-// Load data at startup
-loadData();
-
-// Listen for all messages
+// Listen for messages
 bot.on("message", async (ctx) => {
+  // Check if system is sleeping (avoid 429 errors)
   if (isSleeping) {
-    console.log("Message discarded while sleeping.");
-    return; // Discard new messages during the sleep period
+    console.log("System is sleeping, ignoring message");
+    return;
   }
 
   try {
+    // Extract message data
     const { username, id } = ctx.message.from;
     const messageText = ctx.message.text;
 
-    // Ensure user exists in data
+    // Check if user is in database, if not initialize
     if (!botData.users[id]) {
       botData.users[id] = {
         username,
@@ -53,91 +45,145 @@ bot.on("message", async (ctx) => {
         rouletteLosses: 0,
         gamesPlayed: 0,
       };
-      saveData();
+      saveData(botData, dataFilepath);
     }
 
-    // Check if the username is VISCHCKQTOR
-    if (username === "VISCHCKQTOR") {
-      await ctx.reply("@VISCHCKQTOR the game");
-    }
-    // Check if the message is a string and includes "the game"
-    else if (
-      typeof messageText === "string" &&
-      messageText.toLowerCase().includes("the game")
-    ) {
-      await ctx.reply("@VISCHCKQTOR has lost the game");
-    }
+    // Check if message is a command
+    if (messageText.startsWith("/")) {
+      const [command, ...args] = messageText.split(" ");
+      switch (command) {
+        // File command
+        case "/file":
+          const filePath = path.resolve(__dirname, dataFile);
+          if (fs.existsSync(filePath)) {
+            await ctx.replyWithDocument({
+              source: filePath,
+              filename: "data.json",
+            });
+          } else {
+            await ctx.reply("Database file not found!");
+          }
+          return;
 
-    // Russian Roulette Command
-    if (messageText && messageText.startsWith("/roulette")) {
-      const args = messageText.split(" ");
-      const targetUsername = args[1] || username;
+        // Code Command
+        case "/code":
+          const codePath = path.resolve(__dirname, "index.js");
+          if (fs.existsSync(codePath)) {
+            await ctx.replyWithDocument({
+              source: codePath,
+              filename: "index.js",
+            });
+          } else {
+            await ctx.reply("Code file not found!");
+          }
+          return;
 
-      const odds = 100;
-      const roll = Math.floor(Math.random() * odds) + 1;
+        // Update Command
+        case "/update":
+          if (username === authUser) {
+            await ctx.reply("Updating bot... This may take a while.");
+            exec(
+              `cd /home/josh-bam/telegram-bot && git pull`,
+              (error, stdout, stderr) => {
+                if (error) {
+                  console.error(`Error during git pull: ${error.message}`);
+                  ctx.reply(`Update failed: ${error.message}`);
+                  return;
+                }
+                if (stderr) {
+                  console.warn(`Git pull stderr: ${stderr}`);
+                }
+                ctx.reply(`Git pull completed:\n${stdout}`);
 
-      // Check if the user lost
-      if (roll === 1) {
-        botData.users[id].rouletteLosses += 1;
-        saveData();
-        await ctx.reply(
-          `${targetUsername} has lost the Russian Roulette and is now kicked!`
-        );
-        if (user.status === "member" || user.status === "restricted") {
-          await bot.telegram.restrictChatMember(chatId, user.user.id, {
-            permissions: {
-              can_send_messages: false, // No messages allowed
-              can_send_media_messages: false,
-              can_send_polls: false,
-              can_send_other_messages: false,
-              can_add_web_page_previews: false,
-            },
-            until_date: Math.floor(Date.now() / 1000) + 300, // Timeout for 5 minutes
-          });
-          await ctx.reply(
-            `${targetUsername} lost the Russian Roulette and has been timed out for 1 minute!`
-          );
-        } else {
-          await ctx.reply(
-            `${targetUsername} is an admin or cannot be timed out!`
-          );
-        }
-      } else {
-        botData.users[id].rouletteSurvived += 1;
-        saveData();
-        await ctx.reply(
-          `${targetUsername} survives this round of Russian Roulette!`
-        );
+                // Reboot the system
+                exec(
+                  `sudo reboot`,
+                  (rebootError, rebootStdout, rebootStderr) => {
+                    if (rebootError) {
+                      console.error(
+                        `Error during reboot: ${rebootError.message}`
+                      );
+                      ctx.reply(`Reboot failed: ${rebootError.message}`);
+                      return;
+                    }
+                    if (rebootStderr) {
+                      console.warn(`Reboot stderr: ${rebootStderr}`);
+                    }
+                    ctx.reply(`Reboot initiated.`);
+                  }
+                );
+              }
+            );
+          } else {
+            await ctx.reply("You are not authorized to perform updates.");
+          }
+          return;
+
+        case "/roulette":
+          const args = messageText.split(" ");
+          const targetUsername = args[1];
+          const roll = Math.floor(Math.random() * botData.rouletteChance) + 1;
+
+          // Check if the user lost
+          if (roll === 2) {
+            botData.users[id].rouletteLosses += 1;
+            saveData(dataFilepath, botData);
+            await ctx.reply(
+              `${targetUsername} has lost the Russian Roulette and is now kicked!`
+            );
+            // Check and restrict user (simulate timeout logic)
+            const chatId = ctx.chat.id;
+            const user = await bot.telegram.getChatMember(chatId, id);
+            if (user.status === "member" || user.status === "restricted") {
+              await bot.telegram.restrictChatMember(chatId, user.user.id, {
+                permissions: {
+                  can_send_messages: false,
+                  can_send_media_messages: false,
+                  can_send_polls: false,
+                  can_send_other_messages: false,
+                  can_add_web_page_previews: false,
+                },
+                until_date: Math.floor(Date.now() / 1000) + 300, // Timeout for 5 minutes
+              });
+              await ctx.reply(
+                `${targetUsername} lost the Russian Roulette and has been timed out for 1 minute!`
+              );
+            } else {
+              await ctx.reply(
+                `${targetUsername} is an admin or cannot be timed out!`
+              );
+            }
+          } else {
+            botData.users[id].rouletteSurvived += 1;
+            saveData(dataFilepath, botData);
+            await ctx.reply(
+              `${targetUsername} survives this round of Russian Roulette!`
+            );
+          }
+          return;
+
+        // Leaderboard Command
+        case "/leaderboard":
+          const leaderboard = Object.entries(botData.users)
+            .sort((a, b) => b[1].rouletteSurvived - a[1].rouletteSurvived)
+            .map(([id, user]) => {
+              return `${user.username}: ${user.rouletteSurvived} wins`;
+            });
+          await ctx.reply(leaderboard.join("\n"));
+          return;
       }
-    }
-
-    // Trivia Game
-    if (messageText && messageText.startsWith("/trivia")) {
-      const question = "What is the capital of France?";
-      const correctAnswer = "Paris";
-      await ctx.reply(`Trivia Question: ${question}`);
-
-      // Listener for the correct answer
-      bot.on("text", async (ctx) => {
-        if (ctx.message.text.toLowerCase() === correctAnswer.toLowerCase()) {
-          botData.users[id].gamesPlayed += 1;
-          saveData();
-          await ctx.reply(`Correct answer! ${username} wins!`);
-        }
-      });
-    }
-
-    // Leaderboard Command
-    if (messageText && messageText.startsWith("/leaderboard")) {
-      const leaderboard = Object.entries(botData.users)
-        .sort(([, a], [, b]) => b.rouletteSurvived - a.rouletteSurvived)
-        .slice(0, 5)
-        .map(
-          ([id, user], index) =>
-            `${index + 1}. ${user.username} - ${user.rouletteSurvived} survived`
-        );
-
-      await ctx.reply(`Leaderboard:\n${leaderboard.join("\n")}`);
+    } else {
+      // Check if the sender is the victim
+      if (username === "VISCHCKQTOR") {
+        await ctx.reply("@VISCHCKQTOR the game");
+      }
+      // Check if the message is a string and includes "the game"
+      else if (
+        typeof messageText === "string" &&
+        messageText.toLowerCase().includes("the game")
+      ) {
+        await ctx.reply("@VISCHCKQTOR has lost the game");
+      }
     }
   } catch (error) {
     if (error.response && error.response.error_code === 429) {
