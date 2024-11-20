@@ -1,5 +1,6 @@
 require("dotenv").config();
 const { Telegraf } = require("telegraf");
+const fs = require("fs");
 
 // Ensure the bot token is provided
 const botToken = process.env.BOT_TOKEN;
@@ -16,47 +17,22 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 // Flag to control message processing
 let isSleeping = false;
 
-// Russian Roulette handler
-const russianRoulette = async (ctx, targetUsername) => {
-  const roll = Math.floor(Math.random() * 1000); // Generate a random number between 0 and 999
-  console.log(`Russian Roulette roll for ${targetUsername}: ${roll}`);
-  if (roll === 0) {
-    // Lose condition
-    try {
-      const chatId = ctx.chat.id;
-      const user = await bot.telegram.getChatMember(
-        chatId,
-        ctx.message.reply_to_message.from.id
-      );
-      if (user.status === "member" || user.status === "restricted") {
-        await bot.telegram.restrictChatMember(chatId, user.user.id, {
-          permissions: {
-            can_send_messages: false, // No messages allowed
-            can_send_media_messages: false,
-            can_send_polls: false,
-            can_send_other_messages: false,
-            can_add_web_page_previews: false,
-          },
-          until_date: Math.floor(Date.now() / 1000) + 60, // Timeout for 1 minute
-        });
-        await ctx.reply(
-          `${targetUsername} lost the Russian Roulette and has been timed out for 1 minute!`
-        );
-      } else {
-        await ctx.reply(
-          `${targetUsername} is an admin or cannot be timed out!`
-        );
-      }
-    } catch (err) {
-      console.error("Error applying timeout:", err);
-      await ctx.reply(`Failed to timeout ${targetUsername}.`);
-    }
-  } else {
-    await ctx.reply(
-      `${targetUsername} survived the Russian Roulette this time!`
-    );
+// Load data from JSON file
+const dataFile = "./data.json";
+let botData = { users: {}, leaderboard: {}, games: {} };
+
+// Function to load and save data
+const loadData = () => {
+  if (fs.existsSync(dataFile)) {
+    botData = JSON.parse(fs.readFileSync(dataFile, "utf8"));
   }
 };
+const saveData = () => {
+  fs.writeFileSync(dataFile, JSON.stringify(botData, null, 2));
+};
+
+// Load data at startup
+loadData();
 
 // Listen for all messages
 bot.on("message", async (ctx) => {
@@ -66,20 +42,18 @@ bot.on("message", async (ctx) => {
   }
 
   try {
-    const { username } = ctx.message.from;
+    const { username, id } = ctx.message.from;
     const messageText = ctx.message.text;
 
-    // Russian Roulette command
-    if (messageText && messageText.startsWith("/roulette")) {
-      const targetUsername = messageText.split(" ")[1];
-      if (!targetUsername || !ctx.message.reply_to_message) {
-        await ctx.reply(
-          "Usage: /roulette @username (Reply to the user's message to target them)"
-        );
-        return;
-      }
-      await russianRoulette(ctx, targetUsername);
-      return;
+    // Ensure user exists in data
+    if (!botData.users[id]) {
+      botData.users[id] = {
+        username,
+        rouletteSurvived: 0,
+        rouletteLosses: 0,
+        gamesPlayed: 0,
+      };
+      saveData();
     }
 
     // Check if the username is VISCHCKQTOR
@@ -93,6 +67,78 @@ bot.on("message", async (ctx) => {
     ) {
       await ctx.reply("@VISCHCKQTOR has lost the game");
     }
+
+    // Russian Roulette Command
+    if (messageText && messageText.startsWith("/roulette")) {
+      const args = messageText.split(" ");
+      const targetUsername = args[1] || username;
+
+      const odds = 100;
+      const roll = Math.floor(Math.random() * odds) + 1;
+
+      // Check if the user lost
+      if (roll === 1) {
+        botData.users[id].rouletteLosses += 1;
+        saveData();
+        await ctx.reply(
+          `${targetUsername} has lost the Russian Roulette and is now kicked!`
+        );
+        if (user.status === "member" || user.status === "restricted") {
+          await bot.telegram.restrictChatMember(chatId, user.user.id, {
+            permissions: {
+              can_send_messages: false, // No messages allowed
+              can_send_media_messages: false,
+              can_send_polls: false,
+              can_send_other_messages: false,
+              can_add_web_page_previews: false,
+            },
+            until_date: Math.floor(Date.now() / 1000) + 300, // Timeout for 5 minutes
+          });
+          await ctx.reply(
+            `${targetUsername} lost the Russian Roulette and has been timed out for 1 minute!`
+          );
+        } else {
+          await ctx.reply(
+            `${targetUsername} is an admin or cannot be timed out!`
+          );
+        }
+      } else {
+        botData.users[id].rouletteSurvived += 1;
+        saveData();
+        await ctx.reply(
+          `${targetUsername} survives this round of Russian Roulette!`
+        );
+      }
+    }
+
+    // Trivia Game
+    if (messageText && messageText.startsWith("/trivia")) {
+      const question = "What is the capital of France?";
+      const correctAnswer = "Paris";
+      await ctx.reply(`Trivia Question: ${question}`);
+
+      // Listener for the correct answer
+      bot.on("text", async (ctx) => {
+        if (ctx.message.text.toLowerCase() === correctAnswer.toLowerCase()) {
+          botData.users[id].gamesPlayed += 1;
+          saveData();
+          await ctx.reply(`Correct answer! ${username} wins!`);
+        }
+      });
+    }
+
+    // Leaderboard Command
+    if (messageText && messageText.startsWith("/leaderboard")) {
+      const leaderboard = Object.entries(botData.users)
+        .sort(([, a], [, b]) => b.rouletteSurvived - a.rouletteSurvived)
+        .slice(0, 5)
+        .map(
+          ([id, user], index) =>
+            `${index + 1}. ${user.username} - ${user.rouletteSurvived} survived`
+        );
+
+      await ctx.reply(`Leaderboard:\n${leaderboard.join("\n")}`);
+    }
   } catch (error) {
     if (error.response && error.response.error_code === 429) {
       const retryAfter = error.response.parameters.retry_after || 60; // Default to 60 seconds if Retry-After is missing
@@ -101,7 +147,6 @@ bot.on("message", async (ctx) => {
       await sleep(retryAfter * 1000);
       isSleeping = false; // Reset the sleeping flag
       console.log("Resuming message processing...");
-      await ctx.reply("STOP MET SPAMMEN OF IK GA U KICKEN");
     } else {
       console.error("Error handling message:", error);
       // Optionally, send a generic error message to the user
