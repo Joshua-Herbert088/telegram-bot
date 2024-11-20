@@ -2,7 +2,6 @@ require("dotenv").config();
 const { Telegraf } = require("telegraf");
 const path = require("path");
 const { exec } = require("child_process");
-const { saveData } = require("./util");
 const fs = require("fs");
 
 function sleep(ms) {
