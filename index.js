@@ -10,8 +10,19 @@ if (!botToken) {
 // Initialize the bot
 const bot = new Telegraf(botToken);
 
+// Utility function to pause execution for a given number of milliseconds
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Flag to control message processing
+let isSleeping = false;
+
 // Listen for all messages
 bot.on("message", async (ctx) => {
+  if (isSleeping) {
+    console.log("Message discarded while sleeping.");
+    return; // Discard new messages during the sleep period
+  }
+
   try {
     const { username } = ctx.message.from;
     const messageText = ctx.message.text;
@@ -28,9 +39,18 @@ bot.on("message", async (ctx) => {
       await ctx.reply("@VISCHCKQTOR has lost the game");
     }
   } catch (error) {
-    console.error("Error handling message:", error);
-    // Optionally, send a generic error message to the user
-    await ctx.reply("Oops, something went wrong!");
+    if (error.response && error.response.error_code === 429) {
+      const retryAfter = error.response.parameters.retry_after || 60; // Default to 60 seconds if Retry-After is missing
+      console.warn(`Rate limit hit! Sleeping for ${retryAfter} seconds...`);
+      isSleeping = true; // Set the sleeping flag
+      await sleep(retryAfter * 1000);
+      isSleeping = false; // Reset the sleeping flag
+      console.log("Resuming message processing...");
+    } else {
+      console.error("Error handling message:", error);
+      // Optionally, send a generic error message to the user
+      await ctx.reply("Oops, something went wrong!");
+    }
   }
 });
 
