@@ -68,7 +68,7 @@ bot.on("message", async (ctx) => {
       switch (command) {
         // File command
         case "/file":
-          const filePath = path.resolve(__dirname, dataFile);
+          const filePath = path.resolve(__dirname, dataFilepath);
           if (fs.existsSync(filePath)) {
             await ctx.replyWithDocument({
               source: filePath,
