@@ -3,6 +3,21 @@ const { Telegraf } = require("telegraf");
 const path = require("path");
 const { exec } = require("child_process");
 const { saveData } = require("./util");
+const fs = require("fs");
+
+export function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export function loadData(filePath) {
+  if (fs.existsSync(filePath)) {
+    return JSON.parse(fs.readFileSync(filePath, "utf8"));
+  }
+}
+
+export function saveData(filePath, data) {
+  fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+}
 
 // Ensure bot API token is set
 const botToken = process.env.BOT_TOKEN;
