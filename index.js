@@ -46,6 +46,7 @@ bot.on("message", async (ctx) => {
       await sleep(retryAfter * 1000);
       isSleeping = false; // Reset the sleeping flag
       console.log("Resuming message processing...");
+      await ctx.reply("STOP MET SPAMMEN OF IK GA U KICKEN");
     } else {
       console.error("Error handling message:", error);
       // Optionally, send a generic error message to the user
