@@ -18,6 +18,12 @@ function saveData(filePath, data) {
   fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
 }
 
+// Remove logs file on startup
+const logsPath = path.resolve(__dirname, "logs.txt");
+if (fs.existsSync(logsPath)) {
+  fs.unlinkSync(logsPath);
+}
+
 // Ensure bot API token is set
 const botToken = process.env.BOT_TOKEN;
 if (!botToken) {
@@ -50,6 +56,11 @@ bot.on("message", async (ctx) => {
     // Extract message data
     const { username, id } = ctx.message.from;
     const messageText = ctx.message.text;
+
+    // The message was something different than just text. Maybe a sticker or a photo.
+    if (!messageText) {
+      return;
+    }
 
     // Check if user is in database, if not initialize
     if (!botData.users[id]) {
@@ -89,6 +100,19 @@ bot.on("message", async (ctx) => {
             });
           } else {
             await ctx.reply("Code file not found!");
+          }
+          return;
+
+        // Logs Command
+        case "/logs":
+          const logsPath = path.resolve(__dirname, "logs.txt");
+          if (fs.existsSync(logsPath)) {
+            await ctx.replyWithDocument({
+              source: logsPath,
+              filename: "logs.txt",
+            });
+          } else {
+            await ctx.reply("Logs file not found!");
           }
           return;
 
